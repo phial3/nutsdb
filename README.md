@@ -11,6 +11,7 @@ NutsDB is a simple, fast, embeddable and persistent key/value store written in p
 It supports fully serializable transactions and many data structures such as list、set、sorted set. All operations happen inside a Tx. Tx represents a transaction, which can be read-only or read-write. Read-only transactions can read values for a given bucket and a given key or iterate over a set of key-value pairs. Read-write transactions can read, update and delete keys from the DB.
 
 ## Announcement
+* v0.11.0 release, see for details: https://github.com/nutsdb/nutsdb/issues/219
 * v0.10.0 release, see for details: https://github.com/nutsdb/nutsdb/issues/193
 * v0.9.0 release, see for details: https://github.com/nutsdb/nutsdb/issues/167
 
@@ -43,6 +44,7 @@ It supports fully serializable transactions and many data structures such as lis
       - [Prefix search scans](#prefix-search-scans)
       - [Range scans](#range-scans)
       - [Get all](#get-all)
+      - [Iterator](#iterator)
     - [Merge Operation](#merge-operation)
     - [Database backup](#database-backup)
     - [Using in memory mode](#using-in-memory-mode)
@@ -296,14 +298,18 @@ Also, this bucket is related to the data structure you use. Different data index
 
 #### Iterate buckets
 
-IterateBuckets iterates over all the bucket. IterateBuckets function has two parameters: `ds` and function `f`.
+IterateBuckets iterates over all the buckets that match the pattern. IterateBuckets function has three parameters: `ds`, `pattern` and function `f`.
 
 The current version of the Iterate Buckets method supports the following EntryId Modes:
 
 * `HintKeyValAndRAMIdxMode`：represents ram index (key and value) mode.
 * `HintKeyAndRAMIdxMode`：represents ram index (only key) mode.
 
-The current version of `ds` (represents the data structure)：
+The `pattern` added in version `0.11.0` (represents the pattern to match):
+
+* `pattern` syntax refer to: `filepath.Match`
+
+The current version of `ds` (represents the data structure):
 
 * DataStructureSet
 * DataStructureSortedSet
@@ -313,8 +319,10 @@ The current version of `ds` (represents the data structure)：
 ```go
 if err := db.View(
     func(tx *nutsdb.Tx) error {
-        return tx.IterateBuckets(nutsdb.DataStructureBPTree, func(bucket string) {
+        return tx.IterateBuckets(nutsdb.DataStructureBPTree, "*", func(bucket string) bool {
             fmt.Println("bucket: ", bucket)
+            // true: continue, false: break
+            return true
         })
     }); err != nil {
     log.Fatal(err)
@@ -547,6 +555,51 @@ if err := db.View(
     log.Println(err)
 }
 ```
+
+#### iterator
+
+The option parameter 'Reverse' that determines whether the iterator is forward or Reverse. The current version does not support the iterator for HintBPTSparseIdxMode.
+
+#### forward iterator
+```go
+tx, err := db.Begin(false)
+iterator := nutsdb.NewIterator(tx, bucket, nutsdb.IteratorOptions{Reverse: false})
+i := 0
+for i < 10 {
+    ok, err := iterator.SetNext()
+    fmt.Println("ok, err", ok, err)
+    fmt.Println("Key: ", string(iterator.Entry().Key))
+    fmt.Println("Value: ", string(iterator.Entry().Value))
+    fmt.Println()
+    i++
+}
+err = tx.Commit()
+if err != nil {
+    panic(err)
+}
+```
+
+#### reverse iterator
+
+
+```go
+tx, err := db.Begin(false)
+iterator := nutsdb.NewIterator(tx, bucket, nutsdb.IteratorOptions{Reverse: true})
+i := 0
+for i < 10 {
+    ok, err := iterator.SetNext()
+    fmt.Println("ok, err", ok, err)
+    fmt.Println("Key: ", string(iterator.Entry().Key))
+    fmt.Println("Value: ", string(iterator.Entry().Value))
+    fmt.Println()
+    i++
+}
+err = tx.Commit()
+if err != nil {
+    panic(err)
+}
+    
+  ```
 ### Merge Operation
 
 In order to maintain high-performance writing, NutsDB will write multiple copies of the same key. If your service has multiple updates or deletions to the same key, and you want to merge the same key, you can use NutsDB to provide `db.Merge()`method. This method requires you to write a merge strategy according to the actual situation. Once executed, it will block normal write requests, so it is best to avoid peak periods, such as scheduled execution in the middle of the night.

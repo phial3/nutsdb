@@ -73,11 +73,59 @@ func (db *DB) Delete(bucket string, key []byte) (err error) {
 func (db *DB) Range(bucket string, start, end []byte, f func(key, value []byte) bool) (err error) {
 	err = db.Managed(bucket, false, func(shardDB *ShardDB) error {
 		if index, ok := shardDB.BPTreeIdx[bucket]; ok {
-			index.FindRange(start, end, f)
+			index.FindRange(start, end, func(key []byte, pointer interface{}) bool {
+				record := pointer.(*nutsdb.Record)
+				if record.E.Meta.Flag != nutsdb.DataDeleteFlag && !record.IsExpired() {
+					return f(key, record.E.Value)
+				}
+				return true
+			})
 		}
 		return nil
 	})
+	return
+}
 
+// AllKeys list all key of bucket.
+func (db *DB) AllKeys(bucket string) (keys [][]byte, err error) {
+	err = db.Managed(bucket, false, func(shardDB *ShardDB) error {
+		if index, ok := shardDB.BPTreeIdx[bucket]; ok {
+			index.FindRange(index.FirstKey, index.LastKey, func(key []byte, pointer interface{}) bool {
+				record := pointer.(*nutsdb.Record)
+				if record.E.Meta.Flag != nutsdb.DataDeleteFlag && !record.IsExpired() {
+					keys = append(keys, key)
+				}
+				return true
+			})
+		}
+		return nil
+	})
+	return
+}
+
+// PrefixScan iterates over a key prefix at given bucket, prefix and limitNum.
+// LimitNum will limit the number of entries return.
+func (db *DB) PrefixScan(bucket string, prefix []byte, offsetNum int, limitNum int) (es nutsdb.Entries, off int, err error) {
+	err = db.Managed(bucket, false, func(shardDB *ShardDB) error {
+		if idx, ok := shardDB.BPTreeIdx[bucket]; ok {
+			records, voff, err := idx.PrefixScan(prefix, offsetNum, limitNum)
+			if err != nil {
+				off = voff
+				return nutsdb.ErrPrefixScan
+			}
+			for _, r := range records {
+				if r.E.Meta.Flag == nutsdb.DataDeleteFlag || r.IsExpired() {
+					continue
+				}
+				es = append(es, r.E)
+			}
+			return nil
+		}
+		return nil
+	})
+	if len(es) == 0 {
+		return nil, off, nutsdb.ErrPrefixScan
+	}
 	return
 }
 

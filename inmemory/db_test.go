@@ -65,7 +65,7 @@ func TestDB_Put_GET(t *testing.T) {
 		if err != nil {
 			t.Error(err)
 		}
-		if bytes.Compare(entry.Value, kv.val) != 0 {
+		if !bytes.Equal(entry.Value, kv.val) {
 			t.Errorf("expect value %s, but get %s", kv.val, entry.Value)
 		}
 	}
@@ -82,18 +82,19 @@ func TestDB_Range(t *testing.T) {
 			t.Error(err)
 		}
 	}
+	// delete the first key
+	_ = testDB.Delete(bucket, []byte("key_0000001"))
 
 	start := []byte("key_" + fmt.Sprintf("%07d", 1))
 	end := []byte("key_" + fmt.Sprintf("%07d", 100))
-	var i int
-	i = 1
+	i := 2
 	err := testDB.Range(bucket, start, end, func(key, value []byte) bool {
 		expectKey := []byte("key_" + fmt.Sprintf("%07d", i))
 		expectValue := []byte("val_" + fmt.Sprintf("%07d", i))
-		if bytes.Compare(expectKey, key) != 0 {
+		if !bytes.Equal(expectKey, key) {
 			t.Errorf("expect key %s, but get %s", expectKey, key)
 		}
-		if bytes.Compare(expectValue, value) != 0 {
+		if !bytes.Equal(expectValue, value) {
 			t.Errorf("expect key %s, but get %s", expectValue, value)
 		}
 		i++
@@ -119,11 +120,11 @@ func TestDB_Delete(t *testing.T) {
 		t.Error(err)
 	}
 
-	if bytes.Compare(val, entry.Value) != 0 {
+	if !bytes.Equal(val, entry.Value) {
 		t.Errorf("expect val %s, but get val %s", val, entry.Value)
 	}
 
-	testDB.Get(bucket, key)
+	_, _ = testDB.Get(bucket, key)
 	err = testDB.Delete(bucket, key)
 	if err != nil {
 		t.Error(err)
@@ -146,7 +147,7 @@ func TestDB_Get_ERR(t *testing.T) {
 		key         []byte
 		wantedError error
 	}{
-		{"neBucket", []byte("key"), nutsdb.ErrBucket}, //this case should return ErrBucket
+		{"neBucket", []byte("key"), nutsdb.ErrBucket}, // this case should return ErrBucket
 		{"bucket", []byte("neKey"), nutsdb.ErrKeyNotFound},
 		{"bucket1", []byte("key1"), nil},
 	}
@@ -154,4 +155,73 @@ func TestDB_Get_ERR(t *testing.T) {
 		_, err := testDB.Get(test.bkt, test.key)
 		assertions.Equal(test.wantedError, err)
 	}
+}
+
+func TestDB_AllKeys(t *testing.T) {
+	initTestDB()
+	assertions := assert.New(t)
+
+	bucket := "bucket-keys"
+	key := []byte("key")
+	value := []byte("val")
+	keys, err := testDB.AllKeys("bucket-not-exists")
+	assertions.NoError(err)
+	assertions.Equal(0, len(keys))
+
+	err = testDB.Put(bucket, key, value, 0)
+	assertions.NoError(err)
+	keys, err = testDB.AllKeys(bucket)
+	assertions.NoError(err)
+	assertions.Equal(1, len(keys))
+	assertions.True(bytes.Equal(key, keys[0]))
+
+	err = testDB.Delete(bucket, key)
+	assertions.NoError(err)
+	keys, err = testDB.AllKeys(bucket)
+	assertions.NoError(err)
+	assertions.Equal(0, len(keys))
+}
+
+func TestDB_PrefixScan(t *testing.T) {
+	initTestDB()
+	assertions := assert.New(t)
+
+	bucket := "bucket-keys"
+	prefix1 := []byte("key-")
+	key1 := []byte("key-1")
+	value1 := []byte("val-1")
+
+	prefix2 := []byte("key-2")
+	key2a := []byte("key-2a")
+	key2b := []byte("key-2b")
+	value2a := []byte("val-2a")
+	value2b := []byte("val-2b")
+
+	_, _, err := testDB.PrefixScan(bucket, prefix1, 0, 5)
+	assertions.Error(err)
+
+	err = testDB.Put(bucket, key1, value1, 0)
+	assertions.NoError(err)
+	es, _, err := testDB.PrefixScan(bucket, prefix1, 0, 5)
+	assertions.NoError(err)
+	assertions.Equal(1, len(es))
+
+	err = testDB.Put(bucket, key2a, value2a, 0)
+	assertions.NoError(err)
+	err = testDB.Put(bucket, key2b, value2b, 0)
+	assertions.NoError(err)
+	es, _, err = testDB.PrefixScan(bucket, prefix2, 0, 5)
+	assertions.NoError(err)
+	assertions.Equal(2, len(es))
+	assertions.True(bytes.Equal(value2a, es[0].Value))
+	assertions.True(bytes.Equal(value2b, es[1].Value))
+
+	es, _, _ = testDB.PrefixScan(bucket, prefix2, 0, 1)
+	assertions.Equal(1, len(es))
+	assertions.True(bytes.Equal(value2a, es[0].Value))
+
+	_ = testDB.Delete(bucket, key2a)
+	es, _, _ = testDB.PrefixScan(bucket, prefix2, 0, -1)
+	assertions.Equal(1, len(es))
+	assertions.True(bytes.Equal(value2b, es[0].Value))
 }

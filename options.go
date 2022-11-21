@@ -52,27 +52,39 @@ type Options struct {
 	// if SyncEnable is true, slower but persistent.
 	SyncEnable bool
 
-	// StartFileLoadingMode represents when open a database which RWMode to load files.
-	StartFileLoadingMode RWMode
-
 	// MaxFdNumsInCache represents the max numbers of fd in cache.
 	MaxFdNumsInCache int
 
 	// CleanFdsCacheThreshold represents the maximum threshold for recycling fd, it should be between 0 and 1.
 	CleanFdsCacheThreshold float64
+
+	// BufferSizeOfRecovery represents the buffer size of recoveryReader buffer Size
+	BufferSizeOfRecovery int
 }
 
-var defaultSegmentSize int64 = 256 * 1024 * 1024
+const (
+	B = 1
+
+	KB = 1024 * B
+
+	MB = 1024 * KB
+
+	GB = 1024 * MB
+)
+
+// defaultSegmentSize is default data file size.
+var defaultSegmentSize int64 = 256 * MB
 
 // DefaultOptions represents the default options.
-var DefaultOptions = Options{
-	EntryIdxMode:         HintKeyValAndRAMIdxMode,
-	SegmentSize:          defaultSegmentSize,
-	NodeNum:              1,
-	RWMode:               FileIO,
-	SyncEnable:           true,
-	StartFileLoadingMode: MMap,
-}
+var DefaultOptions = func() Options {
+	return Options{
+		EntryIdxMode: HintKeyValAndRAMIdxMode,
+		SegmentSize:  defaultSegmentSize,
+		NodeNum:      1,
+		RWMode:       FileIO,
+		SyncEnable:   true,
+	}
+}()
 
 type Option func(*Options)
 
@@ -112,12 +124,6 @@ func WithSyncEnable(enable bool) Option {
 	}
 }
 
-func WithStartFileLoadingMode(rwMode RWMode) Option {
-	return func(opt *Options) {
-		opt.StartFileLoadingMode = rwMode
-	}
-}
-
 func WithMaxFdNumsInCache(num int) Option {
 	return func(opt *Options) {
 		opt.MaxFdNumsInCache = num
@@ -127,5 +133,11 @@ func WithMaxFdNumsInCache(num int) Option {
 func WithCleanFdsCacheThreshold(threshold float64) Option {
 	return func(opt *Options) {
 		opt.CleanFdsCacheThreshold = threshold
+	}
+}
+
+func WithBufferSizeOfRecovery(size int) Option {
+	return func(opt *Options) {
+		opt.BufferSizeOfRecovery = size
 	}
 }
